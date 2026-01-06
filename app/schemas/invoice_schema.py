@@ -11,6 +11,7 @@ class InvoiceCreate(BaseModel):
     customer_name: str
     customer_email: Optional[str] = None
     items: List[InvoiceItemCreate]
+    payment_method: Optional[str] = None  # ✅ New
 
 class InvoiceItemResponse(BaseModel):
     product_id: int
@@ -23,12 +24,15 @@ class InvoiceItemResponse(BaseModel):
 
 class InvoiceResponse(BaseModel):
     id: int
+    invoice_number: str
     customer_name: str
     customer_email: Optional[str]
     total_amount: float
     shop_id: int
     created_by_id: int
     created_at: datetime
+    payment_method: Optional[str]  # ✅ New
+    payment_status: str            # ✅ New
     items: List[InvoiceItemResponse]
 
     class Config:

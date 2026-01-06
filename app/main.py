@@ -9,7 +9,8 @@ from app.api.shop import router as shop_router
 from app.api.user_admin import router as user_admin_router
 from app.api.product import router as product_router
 from app.api.invoice import router as invoice_router
-
+from app.api.invoice_pdf import router as invoice_pdf_router
+from app.api.reports import router as report_router
 
 app = FastAPI(title="InvoiceHub - Role Based System")
 
@@ -24,6 +25,10 @@ app.include_router(shop_router)
 app.include_router(user_admin_router)
 app.include_router(product_router)
 app.include_router(invoice_router)
+app.include_router(invoice_pdf_router)
+app.include_router(report_router)
+
+
 
 # Run initialization at startup
 @app.on_event("startup")
