@@ -15,3 +15,4 @@ class Organization(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     users = relationship("User", back_populates="organization")
+    products = relationship("Product", back_populates="shop")
