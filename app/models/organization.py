@@ -16,3 +16,4 @@ class Organization(Base):
 
     users = relationship("User", back_populates="organization")
     products = relationship("Product", back_populates="shop")
+    invoices = relationship("Invoice", back_populates="shop")

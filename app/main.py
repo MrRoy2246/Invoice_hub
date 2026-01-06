@@ -8,6 +8,8 @@ from app.utils.startup import init_system  # Import startup function
 from app.api.shop import router as shop_router
 from app.api.user_admin import router as user_admin_router
 from app.api.product import router as product_router
+from app.api.invoice import router as invoice_router
+
 
 app = FastAPI(title="InvoiceHub - Role Based System")
 
@@ -21,6 +23,7 @@ print("🔑 Auth router included at /auth")
 app.include_router(shop_router)
 app.include_router(user_admin_router)
 app.include_router(product_router)
+app.include_router(invoice_router)
 
 # Run initialization at startup
 @app.on_event("startup")
