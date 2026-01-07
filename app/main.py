@@ -11,6 +11,7 @@ from app.api.product import router as product_router
 from app.api.invoice import router as invoice_router
 from app.api.invoice_pdf import router as invoice_pdf_router
 from app.api.reports import router as report_router
+from app.api.dashboard import router as dashboard_router
 
 app = FastAPI(title="InvoiceHub - Role Based System")
 
@@ -27,6 +28,8 @@ app.include_router(product_router)
 app.include_router(invoice_router)
 app.include_router(invoice_pdf_router)
 app.include_router(report_router)
+app.include_router(dashboard_router)
+
 
 
 

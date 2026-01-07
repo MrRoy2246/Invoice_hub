@@ -9,26 +9,33 @@ class Invoice(Base):
     __tablename__ = "invoices"
 
     id = Column(Integer, primary_key=True, index=True)
-    invoice_number = Column(String(50), nullable=False)
+    invoice_number = Column(String, unique=True, index=True)
+
     customer_name = Column(String, nullable=False)
     customer_email = Column(String, nullable=True)
-    total_amount = Column(Float, default=0)
+
+    sub_total = Column(Float, default=0)
+    tax_rate = Column(Float, default=0)        # %
+    tax_amount = Column(Float, default=0)
+    discount_type = Column(String, nullable=True)  
+    # values: "flat" or "percentage"
+    discount_value = Column(Float, default=0.0)
+    discount_amount = Column(Float, default=0.0)
+    grand_total = Column(Float, default=0)
+
+    payment_method = Column(String, nullable=True)
+    payment_status = Column(String, default="pending")
+
     shop_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
-    # ✅ Payment fields
-    payment_method = Column(String, nullable=True)        # Cash, Card, Mobile banking, etc.
-    payment_status = Column(String, default="pending")   # pending, paid, failed
 
     shop = relationship("Organization", back_populates="invoices")
     created_by = relationship("User")
-    items = relationship("InvoiceItem", back_populates="invoice", cascade="all, delete-orphan")
-    __table_args__ = (
-        UniqueConstraint(
-            "shop_id",
-            "invoice_number",
-            name="uq_invoice_number_per_shop"
-        ),
+    items = relationship(
+        "InvoiceItem",
+        back_populates="invoice",
+        cascade="all, delete-orphan"
     )
 
 class InvoiceItem(Base):

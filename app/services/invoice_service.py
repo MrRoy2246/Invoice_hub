@@ -1,98 +1,74 @@
 from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import extract
-from sqlalchemy.exc import SQLAlchemyError
 from fastapi import HTTPException
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.models.invoice import Invoice, InvoiceItem
 from app.models.product import Product
 
 
-# ==========================================================
-# INVOICE NUMBER GENERATION
-# ==========================================================
+# 🔢 Invoice Number Generator
 def generate_invoice_number(db: Session, shop_id: int) -> str:
-    """
-    Generate a sequential, year-based invoice number per shop.
-
-    Format:
-        INV-YYYY-000001
-
-    Example:
-        INV-2026-000042
-    """
-    current_year = datetime.utcnow().year
+    year = datetime.utcnow().year
 
     last_invoice = (
         db.query(Invoice)
         .filter(
             Invoice.shop_id == shop_id,
-            extract("year", Invoice.created_at) == current_year
+            extract("year", Invoice.created_at) == year
         )
         .order_by(Invoice.id.desc())
         .first()
     )
 
-    if last_invoice:
-        last_sequence = int(last_invoice.invoice_number.split("-")[-1])
-        next_sequence = last_sequence + 1
-    else:
-        next_sequence = 1
+    next_seq = (
+        int(last_invoice.invoice_number.split("-")[-1]) + 1
+        if last_invoice else 1
+    )
 
-    return f"INV-{current_year}-{next_sequence:06d}"
+    return f"INV-{year}-{next_seq:06d}"
 
 
-# ==========================================================
-# INVOICE CREATION WORKFLOW
-# ==========================================================
-def create_invoice_service(
-    db: Session,
-    invoice_data,
-    current_user
-):
-    """
-    Core business logic for creating an invoice.
+# 💸 Discount Calculation
+def calculate_discount(
+    sub_total: float,
+    discount_type: str | None,
+    discount_value: float
+) -> float:
+    if not discount_type or discount_value <= 0:
+        return 0.0
 
-    Responsibilities:
-    - Resolve shop context via RBAC
-    - Generate invoice number
-    - Validate products and stock
-    - Calculate totals
-    - Persist invoice and items
-    - Update inventory
-    """
+    if discount_type == "flat":
+        return min(discount_value, sub_total)
 
-    # ------------------------------------------------------
-    # 1. Resolve shop context (RBAC)
-    # ------------------------------------------------------
+    if discount_type == "percentage":
+        return sub_total * (discount_value / 100)
+
+    return 0.0
+
+
+# 🧠 Create Invoice Logic
+def create_invoice_service(db: Session, invoice_data, current_user):
     role_names = [role.name for role in current_user.roles]
 
+    # 🏪 Determine shop
     if "shop_admin" in role_names:
         shop_id = current_user.organization_id
-    elif "super_admin" in role_names:
-        shop_id = getattr(invoice_data, "shop_id", None)
+    else:
+        shop_id = invoice_data.shop_id
         if not shop_id:
             raise HTTPException(
                 status_code=400,
                 detail="shop_id is required for super admin"
             )
-    else:
-        raise HTTPException(
-            status_code=403,
-            detail="User does not have permission to create invoices"
-        )
 
-    # ------------------------------------------------------
-    # 2. Generate invoice number
-    # ------------------------------------------------------
     invoice_number = generate_invoice_number(db, shop_id)
 
-    # ------------------------------------------------------
-    # 3. Validate products and calculate totals
-    # ------------------------------------------------------
-    total_amount = 0
-    prepared_items = []
+    invoice_items_data = []
+    sub_total = 0.0
 
+    # 📦 Validate products & stock
     for item in invoice_data.items:
         product = (
             db.query(Product)
@@ -106,7 +82,7 @@ def create_invoice_service(
         if not product:
             raise HTTPException(
                 status_code=404,
-                detail=f"Product {item.product_id} not found in shop"
+                detail=f"Product {item.product_id} not found"
             )
 
         if product.quantity < item.quantity:
@@ -115,49 +91,71 @@ def create_invoice_service(
                 detail=f"Not enough stock for {product.name}"
             )
 
-        line_total = product.price * item.quantity
-        total_amount += line_total
+        total_price = product.price * item.quantity
+        sub_total += total_price
 
-        prepared_items.append({
-            "product": product,
-            "quantity": item.quantity,
-            "price": product.price,
-            "total_price": line_total
-        })
+        invoice_items_data.append(
+            (product, item.quantity, product.price, total_price)
+        )
 
-    # ------------------------------------------------------
-    # 4. Persist invoice and items (transaction-safe)
-    # ------------------------------------------------------
+    # 🧮 Discount
+    discount_amount = calculate_discount(
+        sub_total=sub_total,
+        discount_type=invoice_data.discount_type,
+        discount_value=invoice_data.discount_value or 0
+    )
+
+    # 🧾 Tax
+    tax_rate = invoice_data.tax_rate or 0
+    taxable_amount = sub_total - discount_amount
+    tax_amount = (taxable_amount * tax_rate) / 100
+
+    # 💰 Grand Total
+    grand_total = taxable_amount + tax_amount
+
     try:
+        # 🧾 Create Invoice
         invoice = Invoice(
             invoice_number=invoice_number,
             customer_name=invoice_data.customer_name,
             customer_email=invoice_data.customer_email,
-            total_amount=total_amount,
+
+            sub_total=sub_total,
+
+            discount_type=invoice_data.discount_type,
+            discount_value=invoice_data.discount_value or 0,
+            discount_amount=discount_amount,
+
+            tax_rate=tax_rate,
+            tax_amount=tax_amount,
+
+            grand_total=grand_total,
+
+            payment_method=invoice_data.payment_method,
+            payment_status=invoice_data.payment_status,
+
             shop_id=shop_id,
-            created_by_id=current_user.id,
-            payment_method=invoice_data.payment_method,  # new
-            payment_status="pending"                     # new
+            created_by_id=current_user.id
         )
 
         db.add(invoice)
         db.commit()
         db.refresh(invoice)
 
-        for item in prepared_items:
+        # 📦 Create Invoice Items & reduce stock
+        for product, quantity, price, total_price in invoice_items_data:
             db.add(
                 InvoiceItem(
                     invoice_id=invoice.id,
-                    product_id=item["product"].id,
-                    quantity=item["quantity"],
-                    price=item["price"],
-                    total_price=item["total_price"]
+                    product_id=product.id,
+                    quantity=quantity,
+                    price=price,
+                    total_price=total_price
                 )
             )
 
-            # Reduce stock
-            item["product"].quantity -= item["quantity"]
-            db.add(item["product"])
+            product.quantity -= quantity
+            db.add(product)
 
         db.commit()
         db.refresh(invoice)
